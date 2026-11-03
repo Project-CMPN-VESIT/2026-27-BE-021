@@ -2,11 +2,11 @@
 Pipeline Orchestrator — wires all pipeline steps in an optimised async flow.
 
 Architecture:
-  Step 1 (parallel): download video file + download audio file
-  Step 2: split audio into N chunks
+  Step 1: single video download via yt-dlp (contains both video and audio)
+  Step 2: extract audio locally from downloaded video file via ffmpeg and split into N chunks
   Step 3 (parallel): transcribe all chunks via Voxtral API
   Step 4: select key timestamps via Mistral LLM (LangChain)
-  Step 5 (parallel): extract frames from downloaded video file via ffmpeg
+  Step 5 (parallel): extract frames locally from downloaded video file via ffmpeg
   Step 6: generate pedagogical script via Pixtral Vision (LangChain)
   Step 7: synthesise speech via Edge TTS
   Step 8: persist all results to PostgreSQL (optional if db session provided)

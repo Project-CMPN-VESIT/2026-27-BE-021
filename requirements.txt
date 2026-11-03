@@ -17,7 +17,7 @@ mistralai>=1.0.0             # Official Mistral SDK (Voxtral + Pixtral)
 # ── Pipeline tools ────────────────────────────────────────────────────────────
 yt-dlp                       # YouTube download + stream URL extraction
 pydub>=0.25.1                # Audio chunking for parallel transcription
-edge-tts>=6.1.9              # Free Microsoft Edge TTS (no API key)
+edge-tts>=7.3.1              # Free Microsoft Edge TTS (no API key)
 Pillow>=10.0.0               # Image handling / base64 encoding
 aiofiles>=23.0.0             # Async file I/O
 aiohttp>=3.9.0               # Async HTTP client

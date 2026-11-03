@@ -9,17 +9,31 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import List
 
 
-def _get_ytdlp_path() -> str:
-    """Locate the yt-dlp binary — checks PATH first, then the current venv's Scripts folder."""
-    path = shutil.which("yt-dlp")
-    if path:
-        return path
-    sibling = Path(sys.executable).parent / "yt-dlp.exe"
-    if sibling.exists():
-        return str(sibling)
-    return "yt-dlp"
+def _get_base_cmd() -> List[str]:
+    """
+    Get the base command to invoke yt-dlp with appropriate flags and JS runtime.
+    Uses sys.executable -m yt_dlp to ensure packages in current python environment are used.
+    """
+    cmd = [sys.executable, "-m", "yt_dlp", "--no-update", "--no-playlist"]
+
+    # Detect available JS runtime for YouTube signature deciphering (bun, deno, node)
+    bun_path = shutil.which("bun")
+    if not bun_path:
+        local_bun = Path.home() / ".bun" / "bin" / "bun.exe"
+        if local_bun.exists():
+            bun_path = str(local_bun)
+
+    if bun_path and os.path.exists(bun_path):
+        cmd.extend(["--js-runtimes", f"bun:{bun_path}"])
+    elif shutil.which("deno"):
+        cmd.extend(["--js-runtimes", "deno"])
+    elif shutil.which("node"):
+        cmd.extend(["--js-runtimes", "node"])
+
+    return cmd
 
 
 def _run_subprocess(cmd: list) -> subprocess.CompletedProcess:
@@ -32,12 +46,16 @@ async def get_stream_url(youtube_url: str) -> str:
     Fetch the direct CDN video stream URL via yt-dlp (no download).
     Runs in a thread executor so it is compatible with any asyncio event loop.
     """
-    ytdlp = _get_ytdlp_path()
+    cmd = _get_base_cmd() + [
+        "--get-url",
+        "-f", "bestvideo[height<=1080][ext=mp4]/bestvideo[height<=1080]/best[ext=mp4]/best",
+        youtube_url,
+    ]
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
         _run_subprocess,
-        [ytdlp, "--get-url", "-f", "bestvideo[ext=mp4]/bestvideo", youtube_url],
+        cmd,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -55,20 +73,18 @@ async def download_audio(youtube_url: str, out_path: Path) -> Path:
     Runs in a thread executor so it is compatible with any asyncio event loop.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    ytdlp = _get_ytdlp_path()
+    cmd = _get_base_cmd() + [
+        "-f", "bestaudio/best",
+        "-x", "--audio-format", "mp3",
+        "--audio-quality", "5",
+        "-o", str(out_path),
+        youtube_url,
+    ]
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
         _run_subprocess,
-        [
-            ytdlp,
-            "-f", "bestaudio",
-            "-x", "--audio-format", "mp3",
-            "--audio-quality", "5",
-            "--no-playlist",
-            "-o", str(out_path),
-            youtube_url,
-        ],
+        cmd,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -90,20 +106,17 @@ async def download_video(youtube_url: str, out_path: Path) -> Path:
     Returns the path to the downloaded video file.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    ytdlp = _get_ytdlp_path()
+    cmd = _get_base_cmd() + [
+        "-f", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
+        "--merge-output-format", "mp4",
+        "-o", str(out_path),
+        youtube_url,
+    ]
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
         _run_subprocess,
-        [
-            ytdlp,
-            # Keep yt-dlp usage to one video download, but require an audio track
-            # so downstream local ffmpeg extraction can work reliably.
-            "-f", "best[ext=mp4][acodec!=none]/best[acodec!=none]",
-            "--no-playlist",
-            "-o", str(out_path),
-            youtube_url,
-        ],
+        cmd,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -113,17 +126,25 @@ async def download_video(youtube_url: str, out_path: Path) -> Path:
         candidates = list(out_path.parent.glob("video.*"))
         if candidates:
             return candidates[0]
+        # Check any downloaded media file in that folder
+        all_candidates = [p for p in out_path.parent.glob("*.*") if p.suffix.lower() in [".mp4", ".mkv", ".webm"]]
+        if all_candidates:
+            return all_candidates[0]
         raise FileNotFoundError(f"Video file not found after download: {out_path}")
     return out_path
 
 
 async def get_video_id(youtube_url: str) -> str:
     """Extract the YouTube video ID from a URL."""
-    ytdlp = _get_ytdlp_path()
+    cmd = _get_base_cmd() + [
+        "--get-id",
+        youtube_url,
+    ]
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
         _run_subprocess,
-        [ytdlp, "--get-id", youtube_url],
+        cmd,
     )
     return result.stdout.strip()
+
